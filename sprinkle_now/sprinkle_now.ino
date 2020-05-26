@@ -11,6 +11,16 @@
 #define STAPSK  "mypasswd"
 #endif
 
+const String zone_id_tmpl = "##ZONE_ID##";
+const String zone_name_tmpl = "##ZONE_NAME##";
+const String zone_checked_tmpl = "##CHECKED##";
+
+const String element_template = (
+                                  "<input id=\"zone_##ZONE_ID##\" name=\"zone_##ZONE_ID##\" class=\"element checkbox\" type=\"checkbox\" value=1 ##CHECKED##/>"
+                                  "<label class=\"choice\" for=\"zone_##ZONE_ID##\">##ZONE_ID## ##ZONE_NAME##</label>"
+                                  "\n"
+                                );
+
 //#define ZONE_OFF 0
 //#define ZONE_ON 1
 
@@ -25,6 +35,20 @@ const String get_zone_state_name(zone_states state) {
     case ZONE_ON: return String("ZONE_ON");
   }
 }
+
+// order should align with zone state order
+String zone_name[] = {
+  "Back Lower Shrubs",
+  "Back Lower Main",
+  "Back Wildlife Garden",
+  "Back Lawn",
+  "Back Shrubs",
+  "Front Lawn",
+  "Front House Shrubs",
+  "Front South Beds",
+  "Front North Beds",
+  "Front North Wall Drip",
+};
 
 zone_states zone_state[] = {
   ZONE_OFF,
@@ -193,19 +217,15 @@ void setup() {
 
   WiFi.begin(ssid, password);
 
+  print_to_oled("WiFi", "Connecting");
+  display.display();
+
   while (WiFi.status() != WL_CONNECTED) {
-    delay(50);
+    delay(250);
     Serial.print(".");
-    if (val) {
-      print_to_oled(String("Connecting"), String(ssid));
-      toggle();
-    } else {
-      print_to_oled(String("Connecting"), String(ssid) + String("."));
-      toggle();
-    }
-    display.display();
   }
   print_to_oled("WiFi", "Connected");
+  display.display();
   Serial.println("");
   Serial.println("WiFi connected");
   delay(2000);
@@ -217,6 +237,9 @@ void setup() {
   Serial.println("Server started");
   Serial.println(WiFi.localIP());
 
+  print_to_oled("Server", "started");
+  display.display();
+  delay(2000);
 }
 
 void toggle() {
@@ -228,6 +251,24 @@ void toggle() {
   }
   // Set GPIO2 to toggle value
   digitalWrite(2, val);
+}
+
+String get_html_form_elements() {
+  String elements_html;
+  for (int zone = 0; zone < sizeof(zone_state) / sizeof(zone_state[0]); zone++) {
+    int zone_pretty_id = zone + 1;
+    int zone_value = zone_state[zone];
+    String string_html = element_template.substring(0);
+    string_html.replace(zone_id_tmpl, String(zone_pretty_id));
+    string_html.replace(zone_name_tmpl, zone_name[zone]);
+    if (zone_state[zone]) {
+      string_html.replace(zone_checked_tmpl, String("checked"));
+    } else {
+      string_html.replace(zone_checked_tmpl, String(""));
+    }
+    elements_html += string_html;
+  }
+  return elements_html;
 }
 
 void loop() {
@@ -251,19 +292,12 @@ void loop() {
       return;
     }
 
-    //element_1_1=1&element_1_4=1&submit=Submit
+    //zone_1=1&zone_4=1&submit=Submit
     // Read the first line of the request
     //    String req = client.readStringUntil('\r');
-    String req = client.readStringUntil('%');
-    //    String param = req.readStringUntil('%');
-    Serial.print("req is '");
-    Serial.print(req);
-    Serial.print("'");
-    //    Serial.print("param is '");
-    //    Serial.print(param);
-    //    Serial.println("'");
-    Serial.println("");
-
+    //    String req = client.readStringUntil('\n\r\n\r');
+    String req = client.readString();
+    Serial.println("req is '" + req + "'");
     client.flush();
 
     if (req.indexOf("/form.css") != -1) {
@@ -274,6 +308,35 @@ void loop() {
     } else {
       // read form elements
       if (req.indexOf("/activate") != -1) {
+        int params_index = req.indexOf("\r\n\r\n");
+        if (params_index == -1) {
+          Serial.println("uh on, no header/body break found");
+        } else {
+          Serial.println(String("Body index is ") + String(params_index));
+          String body = req.substring(params_index + 4);
+          Serial.println(String("Body: " + body));
+          int last_index = 0;
+          int param_index = 0;
+          do {
+            param_index = body.indexOf("&", last_index);
+            if (param_index > -1) {
+              String param = body.substring(last_index, param_index);
+              Serial.println("Got substring: '" + param + "'");
+              // get zone id
+              int zone_id_index = param.indexOf("_");
+              int equals_index = param.indexOf("=");
+
+              String zone_id = param.substring(zone_id_index + 1, equals_index);
+              String zone_value = param.substring(equals_index + 1);
+
+              Serial.println("Zone '" + zone_id + "': '" + zone_value + "'");
+
+              // get zone value
+              last_index = param_index + 1;
+            }
+          } while (param_index > -1);
+        }
+
         for (int zone = 0; zone < sizeof(zone_state) / sizeof(zone_state[0]); zone++) {
           // todo process form elements, save in new_zone_state
           ;
@@ -283,28 +346,7 @@ void loop() {
       toggle();
       client.print("HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\n");
       client.print(form_html_head);
-      client.print(R"=====(
-        <input id="element_1_1" name="element_1_1" class="element checkbox" type="checkbox" value="1" checked/>
-        <label class="choice" for="element_1_1">1 Back  Lower Shrubs</label>
-        <input id="element_1_2" name="element_1_2" class="element checkbox" type="checkbox" value="1" />
-        <label class="choice" for="element_1_2">2 Back Lower Main</label>
-        <input id="element_1_3" name="element_1_3" class="element checkbox" type="checkbox" value="1" />
-        <label class="choice" for="element_1_3">3 Back Wildlife Garden</label>
-        <input id="element_1_4" name="element_1_4" class="element checkbox" type="checkbox" value="1" checked/>
-        <label class="choice" for="element_1_4">4 Back Lawn</label>
-        <input id="element_1_5" name="element_1_5" class="element checkbox" type="checkbox" value="1" />
-        <label class="choice" for="element_1_5">5 Back Shrubs</label>
-        <input id="element_1_6" name="element_1_6" class="element checkbox" type="checkbox" value="1" />
-        <label class="choice" for="element_1_6">6 Front Lawn</label>
-        <input id="element_1_7" name="element_1_7" class="element checkbox" type="checkbox" value="1" />
-        <label class="choice" for="element_1_7">7 Front House Shrubs</label>
-        <input id="element_1_8" name="element_1_8" class="element checkbox" type="checkbox" value="1" />
-        <label class="choice" for="element_1_8">8 Front South Beds</label>
-        <input id="element_1_9" name="element_1_9" class="element checkbox" type="checkbox" value="1" />
-        <label class="choice" for="element_1_9">9 Front North Beds</label>
-        <input id="element_1_10" name="element_1_10" class="element checkbox" type="checkbox" value="1" />
-        <label class="choice" for="element_1_10">10 Front North Wall Drip</label>
-        )=====");
+      client.print(get_html_form_elements());
       client.print(form_html_tail);
     }
 

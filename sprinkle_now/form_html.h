@@ -21,12 +21,14 @@ const char form_html_head[] = R"=====(
     <ul>
       
     <li id="li_1">
-    <label class="description" for="element_1">Activate Zones</label>
+    <label class="description" for="zone">Activate Zones</label>
     <span>
+    <!-- END FORM HEAD -->
 )=====";
 
 
 const char form_html_tail[] = R"=====(
+    <!-- START FORM TAIL -->
     </span> 
     </li>
       
