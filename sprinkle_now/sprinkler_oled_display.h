@@ -105,22 +105,22 @@ void draw_display() {
   }
 }
 
-void setup()   {
-  Serial.begin(9600);
-
-  display.begin(SSD1306_SWITCHCAPVCC, 0x3C);
-  display.clearDisplay();
-  delay(100);
-
-  print_to_oled("Sprinkle", "Now!");
-  display.display();
-
-  draw_display();
-  display.display();
-  delay(2000);
-}
-
-void loop() {
-  print_to_oled("Running", "");
-  animate_sprinklers();
-}
+//void setup()   {
+//  Serial.begin(9600);
+//
+//  display.begin(SSD1306_SWITCHCAPVCC, 0x3C);
+//  display.clearDisplay();
+//  delay(100);
+//
+//  print_to_oled("Sprinkle", "Now!");
+//  display.display();
+//
+//  draw_display();
+//  display.display();
+//  delay(2000);
+//}
+//
+//void loop() {
+//  print_to_oled("Der", "Spinklen");
+//  animate_sprinklers();
+//}
