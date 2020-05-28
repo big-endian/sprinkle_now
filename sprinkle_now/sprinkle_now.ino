@@ -21,15 +21,10 @@ const String element_template = (
                                   "\n"
                                 );
 
-//#define ZONE_OFF 0
-//#define ZONE_ON 1
+#define ZONE_OFF 0
+#define ZONE_ON 1
 
-enum zone_states {
-  ZONE_OFF,
-  ZONE_ON
-};
-
-const String get_zone_state_name(zone_states state) {
+const String get_zone_state_name(int state) {
   switch (state) {
     case ZONE_OFF: return String("ZONE_OFF");
     case ZONE_ON: return String("ZONE_ON");
@@ -50,9 +45,22 @@ String zone_name[] = {
   "Front North Wall Drip",
 };
 
-zone_states zone_state[] = {
+int zone_pin[] = {
+  D2,
+  D5,
+  D6,
+  D7,
+  D8,
+  D9,
+  D10,
+  D11,
+  D12,
+  D13,
+};
+
+int zone_state[] = {
   ZONE_OFF,
-  ZONE_ON,
+  ZONE_OFF,
   ZONE_OFF,
   ZONE_OFF,
   ZONE_OFF,
@@ -63,14 +71,14 @@ zone_states zone_state[] = {
   ZONE_OFF,
 };
 
-zone_states new_zone_state[] = {
+int new_zone_state[] = {
   ZONE_OFF,
   ZONE_OFF,
   ZONE_OFF,
   ZONE_OFF,
   ZONE_OFF,
   ZONE_OFF,
-  ZONE_ON,
+  ZONE_OFF,
   ZONE_OFF,
   ZONE_OFF,
   ZONE_OFF,
@@ -162,15 +170,15 @@ void draw_base_display() {
 
 // Set digital output pin state for zone to match
 // zone run state
-void set_zone_pin(int zone, zone_states state) {
+void set_zone_pin(int zone, int state) {
   Serial.println(String("Setting zone " + String(zone) + " to state " + get_zone_state_name(state)));
-  //  digitalWrite(zone_pin[zone], state);
+  digitalWrite(zone_pin[zone], state);
 }
 
 // set zone_state to match new states and
 // update corresponding pins to match
 void update_zone_states() {
-  for (int zone = 0; zone < sizeof(new_zone_state) / sizeof(new_zone_state[0]); zone++) {
+  for (int zone = 0; zone < sizeof(zone_state) / sizeof(zone_state[0]); zone++) {
     zone_state[zone] = new_zone_state[zone];
     set_zone_pin(zone, zone_state[zone]);
   }
@@ -193,15 +201,16 @@ const char* ssid = STASSID;
 const char* password = STAPSK;
 
 WiFiServer server(80);
-int val;
 
 void setup() {
-  val = 0;
   Serial.begin(115200);
 
-  // prepare GPIO2
-  pinMode(2, OUTPUT);
-  digitalWrite(2, 0);
+  // prepare GPIO
+  for (int pin_id = 0; pin_id < sizeof(zone_pin) / sizeof(zone_pin[0]); pin_id++) {
+    int pin = zone_pin[pin_id];
+    pinMode(pin, OUTPUT);
+    digitalWrite(pin, 0);
+  }
 
   display.begin(SSD1306_SWITCHCAPVCC, 0x3C);
   display.clearDisplay();
@@ -240,17 +249,6 @@ void setup() {
   print_to_oled("Server", "started");
   display.display();
   delay(2000);
-}
-
-void toggle() {
-  // toggle led each request
-  if (val == 0) {
-    val = 1;
-  } else {
-    val = 0;
-  }
-  // Set GPIO2 to toggle value
-  digitalWrite(2, val);
 }
 
 String get_html_form_elements() {
@@ -292,10 +290,6 @@ void loop() {
       return;
     }
 
-    //zone_1=1&zone_4=1&submit=Submit
-    // Read the first line of the request
-    //    String req = client.readStringUntil('\r');
-    //    String req = client.readStringUntil('\n\r\n\r');
     String req = client.readString();
     Serial.println("req is '" + req + "'");
     client.flush();
@@ -315,6 +309,10 @@ void loop() {
           Serial.println(String("Body index is ") + String(params_index));
           String body = req.substring(params_index + 4);
           Serial.println(String("Body: " + body));
+          // initialize all states to zero since form only provides active states
+          for (int zone = 0; zone < sizeof(zone_state) / sizeof(zone_state[0]); zone++) {
+            new_zone_state[zone] = ZONE_OFF;
+          }
           int last_index = 0;
           int param_index = 0;
           do {
@@ -328,22 +326,18 @@ void loop() {
 
               String zone_id = param.substring(zone_id_index + 1, equals_index);
               String zone_value = param.substring(equals_index + 1);
+              int int_zone_id = zone_id.toInt() - 1;
 
               Serial.println("Zone '" + zone_id + "': '" + zone_value + "'");
+              new_zone_state[int_zone_id] = ZONE_ON;
 
               // get zone value
               last_index = param_index + 1;
             }
           } while (param_index > -1);
         }
-
-        for (int zone = 0; zone < sizeof(zone_state) / sizeof(zone_state[0]); zone++) {
-          // todo process form elements, save in new_zone_state
-          ;
-        }
         update_zone_states();
       }
-      toggle();
       client.print("HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\n");
       client.print(form_html_head);
       client.print(get_html_form_elements());
