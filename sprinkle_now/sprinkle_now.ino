@@ -21,6 +21,12 @@ const String element_template = (
                                   "\n"
                                 );
 
+//const String element_template = (
+//                                  "<input type=\"radio\" id=\"##ZONE_ID##\" name=\"##ZONE_NAME##\" value=\"##ZONE_ID##\">"
+//                                  "<label for=\"##ZONE_ID##\">##ZONE_NAME##</label><br>"
+//                                  "\n"
+//                                );
+
 #define ZONE_OFF 0
 #define ZONE_ON 1
 
@@ -45,18 +51,11 @@ String zone_name[] = {
   "Front North Wall Drip",
 };
 
-int zone_pin[] = {
-  D2,
-  D5,
-  D6,
-  D7,
-  D8,
-  D9,
-  D10,
-  D11,
-  D12,
-  D13,
-};
+int clockPin = D7;
+int latchPin = D6;
+int dataPin = D5;
+int OEPin = D4; // output enable
+int SCLRPin = D3; // clear output
 
 int zone_state[] = {
   ZONE_OFF,
@@ -143,6 +142,11 @@ void print_to_oled(String line_one, String line_two) {
   print_to_oled_at_y(line_two, display_offset[LINE_TWO]);
 }
 
+void print_to_oled(char *line) {
+  display.setCursor(0, 0);
+  display.println(line);
+}
+
 // animate running sprinklers
 void animate_sprinklers() {
   // cycle through each animation step, skip 11 since this
@@ -168,20 +172,35 @@ void draw_base_display() {
   }
 }
 
-// Set digital output pin state for zone to match
-// zone run state
-void set_zone_pin(int zone, int state) {
-  Serial.println(String("Setting zone " + String(zone) + " to state " + get_zone_state_name(state)));
-  digitalWrite(zone_pin[zone], state);
-}
-
 // set zone_state to match new states and
 // update corresponding pins to match
-void update_zone_states() {
-  for (int zone = 0; zone < sizeof(zone_state) / sizeof(zone_state[0]); zone++) {
+void output_zone_states() {
+  digitalWrite(latchPin, LOW);
+//  for (int zone = 0; zone < sizeof(zone_state) / sizeof(zone_state[0]); zone++) {
+  int zone_count = sizeof(zone_state) / sizeof(zone_state[0]);
+  Serial.print("Zone count: ");
+  Serial.println(zone_count);
+  for (int zone = zone_count; zone >= 0; zone--) {
+    int state = zone_state[zone];
+    Serial.println(String("Setting zone " + String(zone) + " (pin:" + zone + ") to state (" + state + ") " + get_zone_state_name(state)));
     zone_state[zone] = new_zone_state[zone];
-    set_zone_pin(zone, zone_state[zone]);
+    digitalWrite(clockPin, LOW);
+    if (zone_state[zone])
+      digitalWrite(dataPin, HIGH);
+    else
+      digitalWrite(dataPin, LOW);
+    digitalWrite(clockPin, HIGH);
   }
+  digitalWrite(latchPin, HIGH);
+}
+
+bool zones_active() {
+  for (int zone = 0; zone < sizeof(zone_state) / sizeof(zone_state[0]); zone++) {
+    if (zone_state[zone]) {
+      return true;
+    }
+  }
+  return false;
 }
 
 // update display to match current run mode
@@ -189,8 +208,13 @@ void update_zone_states() {
 //   - update display text for current state
 //   - animate corresponding zones on display
 void update_display() {
-  print_to_oled("Sprinkling", "");
-  animate_sprinklers();
+  if (zones_active()) {
+    print_to_oled("Sprinkling", "");
+    animate_sprinklers();
+  } else {
+    print_to_oled("Sprinklers", "Idle");
+    display.display();
+  }
 }
 
 void clear_oled_text() {
@@ -205,12 +229,20 @@ WiFiServer server(80);
 void setup() {
   Serial.begin(115200);
 
-  // prepare GPIO
-  for (int pin_id = 0; pin_id < sizeof(zone_pin) / sizeof(zone_pin[0]); pin_id++) {
-    int pin = zone_pin[pin_id];
-    pinMode(pin, OUTPUT);
-    digitalWrite(pin, 0);
-  }
+  pinMode(latchPin, OUTPUT);
+  pinMode(clockPin, OUTPUT);
+  pinMode(dataPin, OUTPUT);
+  pinMode(OEPin, OUTPUT);
+  pinMode(SCLRPin, OUTPUT);
+
+  // initialize output pins to off
+  //   SCLR pin (shift register clear) is provided so that the
+  //   outputs may be put into a known state which should be
+  //   done prior to enabling the outputs
+  // Disable outputs
+  digitalWrite(OEPin, HIGH);
+  // Clear output register by driving SCLR low
+  digitalWrite(SCLRPin, LOW);
 
   display.begin(SSD1306_SWITCHCAPVCC, 0x3C);
   display.clearDisplay();
@@ -237,18 +269,28 @@ void setup() {
   display.display();
   Serial.println("");
   Serial.println("WiFi connected");
-  delay(2000);
+  delay(1000);
 
+//  print_to_oled(WiFi.localIP());
   clear_oled_text();
+  display.setCursor(0, 0);
+  display.println(WiFi.localIP());
+  display.display();
+  delay(3000);
 
   // Start the server
   server.begin();
   Serial.println("Server started");
   Serial.println(WiFi.localIP());
 
-  print_to_oled("Server", "started");
+  print_to_oled("Web server", "started");
   display.display();
   delay(2000);
+
+  // Enable output register to recieve new values
+  digitalWrite(SCLRPin, HIGH);
+  // Enable outputs for all operations going forward
+  digitalWrite(OEPin, LOW);
 }
 
 String get_html_form_elements() {
@@ -280,7 +322,9 @@ void loop() {
     // Wait until the client sends some data
     Serial.println("web client connected");
     unsigned long timeout = millis() + 3000;
+    Serial.println("waiting for client.available() 1");
     while (!client.available() && millis() < timeout) {
+      Serial.println("waiting for client.available()");
       delay(1);
     }
     if (millis() > timeout) {
@@ -290,6 +334,7 @@ void loop() {
       return;
     }
 
+    Serial.println("reading request");
     String req = client.readString();
     Serial.println("req is '" + req + "'");
     client.flush();
@@ -336,7 +381,7 @@ void loop() {
             }
           } while (param_index > -1);
         }
-        update_zone_states();
+        output_zone_states();
       }
       client.print("HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\n");
       client.print(form_html_head);
