@@ -16,7 +16,7 @@ body
   
   margin:0 auto;
   text-align:left;
-  width:640px;
+  width:300px;
 }
 
 #top
@@ -29,11 +29,11 @@ body
 
 #footer
 {
-  width:640px;
+  width:300px;
   clear:both;
   color:#999999;
   text-align:center;
-  width:640px;
+  width:400px;
   padding-bottom: 15px;
   font-size: 85%;
 }
@@ -86,6 +86,11 @@ img
   border:none;
 }
 
+/**** Error Mesage ****/
+.err_msg
+{
+  color:red;
+}
 
 /**** Form Section ****/
 .sprinklers
@@ -303,6 +308,7 @@ input.button_text
   overflow:visible;
   padding:0 7px;
   width:auto;
+  color: "red";
 }
 
 .buttons input
