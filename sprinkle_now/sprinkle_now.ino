@@ -6,10 +6,8 @@
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
 
-#ifndef STASSID
 #define STASSID "myssid"
-#define STAPSK  "mypasswd"
-#endif
+#define STAPSK  "password"
 
 #define UNUSED "UNUSED"
 const String zone_id_tmpl = "##ZONE_ID##";
@@ -35,6 +33,7 @@ const String msg_template = ("<div class=\"user_msg\">##USER_MSG##</div>");
 #define ZONE_UNUSED 2
 #define MAX_ACTIVE_ZONES 1
 #define ZONES_POSSIBLE 16
+#define MAX_RUN_TIME_MINUTES 30
 
 const String get_zone_state_name(int state) {
   switch (state) {
@@ -43,29 +42,28 @@ const String get_zone_state_name(int state) {
   }
 }
 
-
 int zone_state[ZONES_POSSIBLE];
 int new_zone_state[ZONES_POSSIBLE];
 
-// zone_map keys are the zones presented in the UI
-// values are the order they are mapped to the shift
-// register
-int zone_map[ZONES_POSSIBLE] = {
+// pin_zone_map keys are the shift register pins
+// values are the zones on the particular order
+// are wired to relays on the PCB
+int pin_zone_map[ZONES_POSSIBLE] = {
+  14,
+  12,
+  10,
+  8,
+  6,
+  4,
+  2,
   0,
   1,
-  2,
   3,
-  4,
   5,
-  6,
   7,
-  8,
   9,
-  10,
   11,
-  12,
   13,
-  14,
   15,
 };
 
@@ -209,12 +207,13 @@ void draw_base_display() {
 // update corresponding pins to match
 void output_zone_states() {
   digitalWrite(latchPin, LOW);
-  for (int zone = ZONES_POSSIBLE - 1; zone >= 0; zone--) {
+  for (int relay_pin = ZONES_POSSIBLE - 1; relay_pin >= 0; relay_pin--) {
+    int zone = pin_zone_map[relay_pin];
     int state = new_zone_state[zone];
+    zone_state[zone] = state;
     Serial.println(String("Setting zone " + String(zone) + " to state (" + state + ") " + get_zone_state_name(state)));
-    zone_state[zone_map[zone]] = state;
     digitalWrite(clockPin, LOW);
-    if (zone_state[zone_map[zone]])
+    if (state)
       digitalWrite(dataPin, HIGH);
     else
       digitalWrite(dataPin, LOW);
@@ -268,11 +267,6 @@ WiFiServer server(80);
 void setup() {
   Serial.begin(115200);
 
-  initialize_zones_off(zone_state, ZONES_POSSIBLE);
-  print_zones_to_serial(zone_state, ZONES_POSSIBLE);
-  initialize_zones_off(new_zone_state, ZONES_POSSIBLE);
-  print_zones_to_serial(new_zone_state, ZONES_POSSIBLE);
-  output_zone_states();
   
   server.setNoDelay(true);
 
@@ -291,6 +285,20 @@ void setup() {
   // Clear output register by driving SCLR low
   digitalWrite(SCLRPin, LOW);
 
+  initialize_zones_off(zone_state, ZONES_POSSIBLE);
+  print_zones_to_serial(zone_state, ZONES_POSSIBLE);
+  initialize_zones_off(new_zone_state, ZONES_POSSIBLE);
+  print_zones_to_serial(new_zone_state, ZONES_POSSIBLE);
+  delay(100);
+  // Enable output register to recieve new values
+  digitalWrite(SCLRPin, HIGH);
+
+  delay(100);
+  output_zone_states();
+
+  // Enable outputs for all operations going forward
+  digitalWrite(OEPin, LOW);
+  
   display.begin(SSD1306_SWITCHCAPVCC, 0x3C);
   display.clearDisplay();
   delay(100);
@@ -302,7 +310,7 @@ void setup() {
   Serial.println();
   Serial.print("Connecting to ");
   Serial.println(ssid);
-
+  WiFi.mode(WIFI_STA);
   WiFi.begin(ssid, password);
 
   print_to_oled("WiFi", "Connecting");
@@ -334,10 +342,6 @@ void setup() {
   display.display();
   delay(1000);
 
-  // Enable output register to recieve new values
-  digitalWrite(SCLRPin, HIGH);
-  // Enable outputs for all operations going forward
-  digitalWrite(OEPin, LOW);
 
   // Just in case, initialize outputs to ensure everything is off
   output_zone_states();
@@ -391,11 +395,8 @@ void check_run_time() {
     int seconds_left = ms_left/1000;
     if (ms_left < 0) {
       Serial.println("Disabling zones");
-      // Serial.println("Zones are active: ");
-      // print_zones_to_serial(zone_state, ZONES_POSSIBLE);
-      // Serial.println("Set zones to zero: ");
       initialize_zones_off(zone_state, ZONES_POSSIBLE);
-      // print_zones_to_serial(zone_state, ZONES_POSSIBLE);
+      output_zone_states();
     } else {
       user_msg = String(run_seconds_remaining) + "s remaining";
       if (run_seconds_remaining != seconds_left) {
@@ -464,7 +465,12 @@ void process_request(String req, String path) {
           // Serial.println("DEBUG field_id = '" + String(field_id) + "'");
           // Serial.println("DEBUG field_value = '" + String(field_value) + "'");
           if (field_id == "run_minutes_name") {
-            run_interval_ms = (unsigned long)(field_value.toInt() * 60 * 1000);
+            int run_time_minutes = field_value.toInt();
+            if (run_time_minutes > MAX_RUN_TIME_MINUTES) {
+              Serial.println("run time selected is too long: '" + String(run_time_minutes) + "'");
+              run_time_minutes = 0;
+            }
+            run_interval_ms = (unsigned long)(run_time_minutes * 60 * 1000);
             start_run_marker_ms = millis();
         
             Serial.println("new stop run interval is " + String(run_interval_ms));
