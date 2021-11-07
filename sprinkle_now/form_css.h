@@ -1,4 +1,3 @@
-//const char form_css[] PROGMEM = R"=====(
 const char form_css[] = R"=====(
 
 body
